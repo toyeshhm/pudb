@@ -76,6 +76,7 @@ Keys:
     c - continue
     r/f - finish current function
     t - run to cursor
+    T - run to a later line in the current frame (skips recursive calls)
     J - jump to line
     e - show traceback [post-mortem or in exception state]
     b - set/clear breakpoint
@@ -1739,6 +1740,30 @@ class DebuggerUI(FrameVarInfoKeeper):
                     self.debugger.set_continue()
                     end()
 
+        def run_to_cursor_in_frame(_w: urwid.Widget, _size: UrwidSize, _key: str):
+            if self.debugger.post_mortem:
+                self.message("Post-mortem mode: Can't modify state.")
+                return
+
+            assert self.source_code_provider is not None
+            frame = self.debugger.curframe
+            lineno = self.source.focus + 1
+
+            # set_until only runs forward, and only stops in this frame's code.
+            if (self.source_code_provider.get_source_identifier()
+                        != self.debugger.canonic(frame.f_code.co_filename)
+                    or lineno <= frame.f_lineno
+                    or lineno not in (
+                        line for _, _, line in frame.f_code.co_lines())):
+                self.message(
+                    "Cannot run to the line you indicated in this frame. "
+                    "It must be a later line of the function being executed "
+                    "in the current frame. Use 't' to run to any other line.")
+                return
+
+            self.debugger.set_until(frame, lineno)
+            end()
+
         def jump_to_cursor(w, size, key):
             if self.debugger.post_mortem:
                 self.message("Post-mortem mode: Can't modify state.")
@@ -1904,6 +1929,7 @@ Error with jump. Note that jumping only works on the topmost stack frame.
         self.source_sigwrap.listen("r", finish)
         self.source_sigwrap.listen("c", cont)
         self.source_sigwrap.listen("t", run_to_cursor)
+        self.source_sigwrap.listen("T", run_to_cursor_in_frame)
         self.source_sigwrap.listen("J", jump_to_cursor)
 
         self.source_sigwrap.listen("L", go_to_line)
